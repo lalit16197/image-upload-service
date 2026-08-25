@@ -19,3 +19,21 @@ ENV/
 
 # LocalStack dynamic data (if created locally)
 .localstack/
+
+# LocalStack dynamic data & cache
+.localstack/
+.localstack_data/
+*.pem
+
+# Environment variables
+.env
+.env.*
+
+# Python caches
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# LocalStack dynamic state and data
+.localstack_data/
+.localstack/
