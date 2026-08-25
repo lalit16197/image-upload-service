@@ -23,10 +23,19 @@ services:
       # Persist state across docker-compose down / up cycles
       - "./.localstack_data:/var/lib/localstack"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      test:
+        - CMD-SHELL
+        - >-
+          curl -sf http://localhost:4566/_localstack/health &&
+          awslocal s3api head-bucket --bucket instagram-images-bucket &&
+          awslocal s3api head-bucket --bucket instagram-images-quarantine &&
+          awslocal dynamodb describe-table --table-name ImagesMetadata >/dev/null &&
+          awslocal sqs get-queue-url --queue-name image-upload-queue >/dev/null &&
+          awslocal sqs get-queue-url --queue-name image-delete-queue >/dev/null
       interval: 5s
-      timeout: 5s
-      retries: 10
+      timeout: 20s
+      start_period: 10s
+      retries: 30
     networks:
       - app-network
 
