@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Instagram Scalable Image Upload & Metadata Service",
-    "description": "\n## Cloud-Native Media Pipeline API\n\nThis service supports direct-to-S3 presigned multipart uploads, single-table DynamoDB index lookups, \nand non-blocking asynchronous hard purging using AWS SQS.\n\n### Usage Quickstart:\n1. Call **`POST /api/v1/images/upload-url`** to get an S3 presigned upload link and register metadata.\n2. Upload binary payload directly to S3 using the generated URL.\n3. Query active media assets using **`GET /api/v1/images`** (filters by `owner_id` or `category`).\n4. Retrieve secure GET download links using **`GET /api/v1/images/{owner_id}/{image_id}/download`**.\n5. Delete media assets asynchronously using **`DELETE /api/v1/images/{owner_id}/{image_id}`**.\n    ",
+    "description": "\n## Cloud-Native Media Pipeline API\n\nSupports direct-to-S3 presigned multipart uploads, single-table DynamoDB index lookups, \nand non-blocking asynchronous hard purging using AWS SQS.\n    ",
     "version": "1.0.0"
   },
   "paths": {
@@ -11,8 +11,8 @@
         "tags": [
           "Image Management"
         ],
-        "summary": "Task 1.1: Initiate S3 Presigned Upload",
-        "description": "Generates a presigned S3 upload configuration and initializes \nthe metadata lifecycle in DynamoDB with AVAILABLE status.",
+        "summary": "Task 1.1: Initiate S3 Presigned Multipart Upload",
+        "description": "Generates presigned S3 multipart upload links. The upload worker later\nvalidates the object and persists its metadata.",
         "operationId": "initiate_image_upload_api_v1_images_upload_url_post",
         "requestBody": {
           "content": {
@@ -26,12 +26,51 @@
         },
         "responses": {
           "201": {
-            "description": "Returns S3 upload configuration and saves initial metadata to DynamoDB.",
+            "description": "Returns presigned multipart URLs. Metadata is written after asynchronous validation.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/UploadResponse"
                 }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/images/upload-complete": {
+      "post": {
+        "tags": [
+          "Image Management"
+        ],
+        "summary": "Complete multipart upload and trigger quarantine validation",
+        "operationId": "complete_image_upload_api_v1_images_upload_complete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteUploadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           },
@@ -54,7 +93,6 @@
           "Image Management"
         ],
         "summary": "Task 1.2: List active images with search filters",
-        "description": "Lists active images from DynamoDB. \nRequires at least one filter parameter (`owner_id` or `category`).\nAutomatically excludes items marked as `PENDING_DELETE`.",
         "operationId": "list_images_api_v1_images_get",
         "parameters": [
           {
@@ -92,11 +130,47 @@
               "title": "Category"
             },
             "description": "Filter images by Category (uses GSI2)"
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter images by Tag (uses GSI1)",
+              "title": "Tag"
+            },
+            "description": "Filter images by Tag (uses GSI1)"
+          },
+          {
+            "name": "filename_prefix",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filename prefix, used with tag",
+              "title": "Filename Prefix"
+            },
+            "description": "Filename prefix, used with tag"
           }
         ],
         "responses": {
           "200": {
-            "description": "Returns list of active images matching search parameters.",
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
@@ -128,7 +202,6 @@
           "Image Management"
         ],
         "summary": "Task 1.3: Get secure view/download URL",
-        "description": "Retrieves image metadata and generates a secure, short-lived GET presigned URL for direct viewing/downloading.",
         "operationId": "get_image_download_url_api_v1_images__owner_id___image_id__download_get",
         "parameters": [
           {
@@ -152,7 +225,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Returns a temporary GET presigned S3 download URL.",
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
@@ -180,7 +253,6 @@
           "Image Management"
         ],
         "summary": "Task 1.4: Asynchronously delete an image",
-        "description": "Soft-deletes the image metadata in DynamoDB (`PENDING_DELETE`) for instant API read exclusion,\nand dispatches a message to SQS for background S3 and DynamoDB hard deletion.",
         "operationId": "delete_image_api_v1_images__owner_id___image_id__delete",
         "parameters": [
           {
@@ -204,7 +276,7 @@
         ],
         "responses": {
           "202": {
-            "description": "Marks item as soft-deleted and enqueues job for SQS worker hard purge.",
+            "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
@@ -229,6 +301,51 @@
   },
   "components": {
     "schemas": {
+      "CompletePart": {
+        "properties": {
+          "PartNumber": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Partnumber"
+          },
+          "ETag": {
+            "type": "string",
+            "title": "Etag"
+          }
+        },
+        "type": "object",
+        "required": [
+          "PartNumber",
+          "ETag"
+        ],
+        "title": "CompletePart"
+      },
+      "CompleteUploadRequest": {
+        "properties": {
+          "s3_key": {
+            "type": "string",
+            "title": "S3 Key"
+          },
+          "upload_id": {
+            "type": "string",
+            "title": "Upload Id"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/CompletePart"
+            },
+            "type": "array",
+            "title": "Parts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "s3_key",
+          "upload_id",
+          "parts"
+        ],
+        "title": "CompleteUploadRequest"
+      },
       "DownloadResponse": {
         "properties": {
           "image_id": {
@@ -296,6 +413,33 @@
               }
             ],
             "title": "Caption"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag"
+          },
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "title": "Size Bytes",
+            "default": 0
           }
         },
         "type": "object",
@@ -337,6 +481,19 @@
             "default": "general",
             "example": "travel"
           },
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag",
+            "description": "Tag used for indexed search",
+            "example": "beach"
+          },
           "caption": {
             "anyOf": [
               {
@@ -349,6 +506,15 @@
             "title": "Caption",
             "description": "Optional text description",
             "example": "Summer in Rome"
+          },
+          "total_parts": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Total Parts",
+            "description": "Number of multipart upload parts requested",
+            "default": 1,
+            "example": 1
           }
         },
         "type": "object",
@@ -376,35 +542,52 @@
         ],
         "title": "MessageResponse"
       },
+      "PartUrlItem": {
+        "properties": {
+          "part_number": {
+            "type": "integer",
+            "title": "Part Number"
+          },
+          "upload_url": {
+            "type": "string",
+            "title": "Upload Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "part_number",
+          "upload_url"
+        ],
+        "title": "PartUrlItem"
+      },
       "UploadResponse": {
         "properties": {
           "image_id": {
             "type": "string",
-            "title": "Image Id",
-            "example": "2cd6bd3d-700b-4c0f-b216-ae396d07f500"
-          },
-          "s3_key": {
-            "type": "string",
-            "title": "S3 Key",
-            "example": "uploads/user_mario_42/2cd6bd3d-700b-4c0f-b216-ae396d07f500/vacation.jpg"
+            "title": "Image Id"
           },
           "upload_id": {
             "type": "string",
-            "title": "Upload Id",
-            "example": "kQM4siMOcMAwZmCY2mdM..."
+            "title": "Upload Id"
           },
-          "upload_url": {
+          "s3_key": {
             "type": "string",
-            "title": "Upload Url",
-            "example": "http://localhost:4566/instagram-images-bucket/..."
+            "title": "S3 Key"
+          },
+          "part_urls": {
+            "items": {
+              "$ref": "#/components/schemas/PartUrlItem"
+            },
+            "type": "array",
+            "title": "Part Urls"
           }
         },
         "type": "object",
         "required": [
           "image_id",
-          "s3_key",
           "upload_id",
-          "upload_url"
+          "s3_key",
+          "part_urls"
         ],
         "title": "UploadResponse"
       },
@@ -453,13 +636,7 @@
   "tags": [
     {
       "name": "Image Management",
-      "description": "Core operations for presigned upload generation, GSI-filtered querying, viewing, and async soft/hard deletion."
-    }
-  ],
-  "servers": [
-    {
-      "url": "http://localhost:8000",
-      "description": "Local Docker Server"
+      "description": "Quarantined multipart uploads, indexed metadata search, secure downloads, and asynchronous deletion."
     }
   ]
 }

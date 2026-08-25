@@ -21,6 +21,17 @@ s3_client = boto3.client(
     config=Config(s3={"addressing_style": "path"})  # <--- THIS IS THE CRITICAL FIX
 )
 
+# Presigned URLs must use an endpoint reachable by the browser, not the
+# Docker-internal "localstack" hostname used by the API container.
+presign_s3_client = boto3.client(
+    "s3",
+    endpoint_url=getattr(settings, "PUBLIC_ENDPOINT_URL", endpoint_url),
+    region_name=aws_region,
+    aws_access_key_id=aws_access_key_id,
+    aws_secret_access_key=aws_secret_access_key,
+    config=Config(s3={"addressing_style": "path"}),
+)
+
 sqs_client = boto3.client(
     "sqs",
     endpoint_url=endpoint_url,

@@ -1,22 +1,29 @@
 import json
 import os
-import time
 import boto3
 from urllib.parse import unquote_plus
 from app.config import settings
+from app.services.metadata_service import MetadataService
 
 aws_region = getattr(settings, "AWS_REGION", None) or os.getenv("AWS_DEFAULT_REGION", "us-east-1")
 endpoint_url = getattr(settings, "ENDPOINT_URL", None) or os.getenv("AWS_ENDPOINT_URL", "http://127.0.0.1:4566")
 
-sqs_client = boto3.client(
-    "sqs", endpoint_url=endpoint_url, region_name=aws_region,
+s3_client = boto3.client(
+    "s3", endpoint_url=endpoint_url, region_name=aws_region,
     aws_access_key_id="test", aws_secret_access_key="test"
 )
-dynamodb = boto3.resource(
-    "dynamodb", endpoint_url=endpoint_url, region_name=aws_region,
-    aws_access_key_id="test", aws_secret_access_key="test"
-)
-table = dynamodb.Table(getattr(settings, "DYNAMODB_TABLE_NAME", "ImagesMetadata"))
+
+IMAGE_SIGNATURES = {
+    "image/jpeg": (b"\xff\xd8\xff",),
+    "image/png": (b"\x89PNG\r\n\x1a\n",),
+    "image/gif": (b"GIF87a", b"GIF89a"),
+}
+
+
+def _valid_image_header(content_type, header):
+    if content_type == "image/webp":
+        return len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WEBP"
+    return any(header.startswith(signature) for signature in IMAGE_SIGNATURES.get(content_type, ()))
 
 
 def upload_worker_handler(event, context):
@@ -40,16 +47,34 @@ def upload_worker_handler(event, context):
                 else:
                     continue
 
-                # Automatically save metadata record to DynamoDB upon successful S3 upload
-                table.put_item(
-                    Item={
-                        "PK": f"OWNER#{owner_id}",
-                        "SK": f"IMAGE#{image_id}",
-                        "image_id": image_id,
-                        "owner_id": owner_id,
-                        "s3_key": s3_key,
-                        "status": "AVAILABLE",
-                    }
+                object_info = s3_client.head_object(Bucket=bucket_name, Key=s3_key)
+                content_type = object_info.get("ContentType", "")
+                if content_type not in IMAGE_SIGNATURES and content_type != "image/webp":
+                    raise ValueError("Unsupported image content type")
+                header = s3_client.get_object(
+                    Bucket=bucket_name, Key=s3_key, Range="bytes=0-15"
+                )["Body"].read()
+                if not _valid_image_header(content_type, header):
+                    s3_client.delete_object(Bucket=bucket_name, Key=s3_key)
+                    raise ValueError("Image magic bytes do not match content type")
+
+                s3_client.copy_object(
+                    CopySource={"Bucket": bucket_name, "Key": s3_key},
+                    Bucket=settings.S3_BUCKET_NAME,
+                    Key=s3_key,
+                    MetadataDirective="COPY",
+                )
+                s3_client.delete_object(Bucket=bucket_name, Key=s3_key)
+                metadata = object_info.get("Metadata", {})
+                MetadataService.save_metadata(
+                    image_id=image_id,
+                    owner_id=metadata.get("owner_id", owner_id),
+                    category=metadata.get("category", "general"),
+                    tag=metadata.get("tag"),
+                    caption=metadata.get("caption"),
+                    filename=metadata.get("filename", parts[-1]),
+                    size_bytes=object_info.get("ContentLength", 0),
+                    s3_key=s3_key,
                 )
                 print(f"[Upload Worker] Indexed image {image_id} for owner {owner_id}")
 

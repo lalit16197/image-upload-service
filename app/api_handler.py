@@ -65,7 +65,7 @@ def handler(event, context):
                 download_url = StorageService.generate_download_url(meta["s3_key"])
                 return build_response(200, {"download_url": download_url, "metadata": meta})
             
-            return build_response(400, format("Invalid path structure for image lookup"))
+            return build_response(400, {"error": "Invalid path structure for image lookup"})
 
         # 4. Delete Image (Triggers soft delete + SQS delete worker)
         elif http_method == "DELETE" and path.startswith("/images/"):

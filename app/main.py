@@ -1,4 +1,6 @@
 from fastapi import FastAPI, HTTPException, Query, status
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 import logging
@@ -14,7 +16,7 @@ logger = logging.getLogger("api_main")
 tags_metadata = [
     {
         "name": "Image Management",
-        "description": "Core operations for presigned multipart upload generation, GSI-filtered querying, viewing, and async deletion.",
+        "description": "Quarantined multipart uploads, indexed metadata search, secure downloads, and asynchronous deletion.",
     },
 ]
 
@@ -33,15 +35,30 @@ and non-blocking asynchronous hard purging using AWS SQS.
     redoc_url="/redoc",
     openapi_url="/openapi.json"
 )
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def frontend():
+    return FileResponse("app/static/index.html")
 
 # --- Pydantic Request & Response Schemas ---
 class InitiateUploadRequest(BaseModel):
-    owner_id: str = Field(..., example="user_mario_42", description="Unique identifier of the image owner")
-    file_name: str = Field(..., example="vacation.jpg", description="Original filename of the asset")
-    content_type: str = Field("image/jpeg", example="image/jpeg", description="MIME content type")
-    category: str = Field("general", example="travel", description="Category tag used for GSI indexing")
-    caption: Optional[str] = Field(None, example="Summer in Rome", description="Optional text description")
-    total_parts: int = Field(1, example=1, description="Number of multipart upload parts requested")
+    owner_id: str = Field(..., description="Unique identifier of the image owner",
+                          json_schema_extra={"example": "user_mario_42"})
+    file_name: str = Field(..., description="Original filename of the asset",
+                           json_schema_extra={"example": "vacation.jpg"})
+    content_type: str = Field("image/jpeg", description="MIME content type",
+                              json_schema_extra={"example": "image/jpeg"})
+    category: str = Field("general", description="Category tag used for GSI indexing",
+                          json_schema_extra={"example": "travel"})
+    tag: Optional[str] = Field(None, description="Tag used for indexed search",
+                               json_schema_extra={"example": "beach"})
+    caption: Optional[str] = Field(None, description="Optional text description",
+                                   json_schema_extra={"example": "Summer in Rome"})
+    total_parts: int = Field(1, ge=1, le=10000,
+                             description="Number of multipart upload parts requested",
+                             json_schema_extra={"example": 1})
 
 class PartUrlItem(BaseModel):
     part_number: int
@@ -53,6 +70,15 @@ class UploadResponse(BaseModel):
     s3_key: str
     part_urls: List[PartUrlItem]
 
+class CompletePart(BaseModel):
+    PartNumber: int = Field(..., ge=1)
+    ETag: str
+
+class CompleteUploadRequest(BaseModel):
+    s3_key: str
+    upload_id: str
+    parts: List[CompletePart]
+
 class ImageItemResponse(BaseModel):
     image_id: str
     owner_id: str
@@ -61,6 +87,9 @@ class ImageItemResponse(BaseModel):
     s3_key: str
     created_at: str
     caption: Optional[str] = None
+    tag: Optional[str] = None
+    filename: Optional[str] = None
+    size_bytes: int = 0
 
 class DownloadResponse(BaseModel):
     image_id: str
@@ -79,33 +108,50 @@ class MessageResponse(BaseModel):
     status_code=status.HTTP_201_CREATED,
     tags=["Image Management"],
     summary="Task 1.1: Initiate S3 Presigned Multipart Upload",
-    response_description="Returns S3 multipart upload URLs and saves initial metadata to DynamoDB."
+    response_description="Returns presigned multipart URLs. Metadata is written after asynchronous validation."
 )
 def initiate_image_upload(payload: InitiateUploadRequest):
     """
-    Generates presigned S3 multipart upload links and initializes 
-    the metadata lifecycle in DynamoDB with AVAILABLE status.
+    Generates presigned S3 multipart upload links. The upload worker later
+    validates the object and persists its metadata.
     """
     try:
         # Call storage service using user_id and total_parts
         upload_data = StorageService.initiate_multipart_upload(
             user_id=payload.owner_id,
             file_name=payload.file_name,
-            total_parts=payload.total_parts
-        )
-        
-        MetadataService.save_metadata(
-            image_id=upload_data["image_id"],
-            owner_id=payload.owner_id,
+            total_parts=payload.total_parts,
             category=payload.category,
-            s3_key=upload_data["s3_key"],
-            caption=payload.caption
+            tag=payload.tag,
+            content_type=payload.content_type,
+            caption=payload.caption,
         )
-        
         return upload_data
     except Exception as e:
         logger.error(f"Error initiating upload: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to initialize image upload session: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to initialize image upload session.")
+
+
+@app.post(
+    "/api/v1/images/upload-complete",
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["Image Management"],
+    summary="Complete multipart upload and trigger quarantine validation",
+)
+def complete_image_upload(payload: CompleteUploadRequest):
+    try:
+        result = StorageService.complete_multipart_upload(
+            s3_key=payload.s3_key,
+            upload_id=payload.upload_id,
+            parts=[part.dict() for part in payload.parts],
+        )
+        return {
+            "message": "Upload completed; validation is processing asynchronously.",
+            "s3_key": result["Key"],
+        }
+    except Exception:
+        logger.exception("Error completing multipart upload")
+        raise HTTPException(status_code=500, detail="Failed to complete image upload.")
 
 
 @app.get(
@@ -117,19 +163,23 @@ def initiate_image_upload(payload: InitiateUploadRequest):
 )
 def list_images(
     owner_id: Optional[str] = Query(None, description="Filter images by Owner ID (uses GSI1)"),
-    category: Optional[str] = Query(None, description="Filter images by Category (uses GSI2)")
+    category: Optional[str] = Query(None, description="Filter images by Category (uses GSI2)"),
+    tag: Optional[str] = Query(None, description="Filter images by Tag (uses GSI1)"),
+    filename_prefix: Optional[str] = Query(None, description="Filename prefix, used with tag"),
 ):
-    if not owner_id and not category:
+    if not owner_id and not category and not tag:
         raise HTTPException(
             status_code=400, 
-            detail="At least one search filter parameter ('owner_id' or 'category') must be specified."
+            detail="At least one search filter parameter ('owner_id', 'category', or 'tag') must be specified."
         )
 
     try:
-        if owner_id:
-            return MetadataService.query_by_owner(owner_id)
-        else:
-            return MetadataService.query_by_category(category)
+        return MetadataService.list_images(
+            owner_id=owner_id,
+            category=category,
+            tag=tag,
+            filename_prefix=filename_prefix,
+        )
     except Exception as e:
         logger.error(f"Error querying images: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to query image metadata records.")

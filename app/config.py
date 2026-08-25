@@ -4,8 +4,11 @@ import os
 class Settings:
     AWS_REGION: str = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
     ENDPOINT_URL: str | None = os.getenv("AWS_ENDPOINT_URL")  # Set for LocalStack, None in AWS production
+    PUBLIC_ENDPOINT_URL: str = os.getenv("PUBLIC_ENDPOINT_URL", "http://localhost:4566")
 
     S3_BUCKET_NAME: str = os.getenv("S3_BUCKET_NAME", "instagram-images-bucket")
+    QUARANTINE_BUCKET_NAME: str = os.getenv("QUARANTINE_BUCKET_NAME", "instagram-images-quarantine")
+    MULTIPART_PART_SIZE_BYTES: int = int(os.getenv("MULTIPART_PART_SIZE_BYTES", str(8 * 1024 * 1024)))
     DYNAMODB_TABLE_NAME: str = os.getenv("DYNAMODB_TABLE_NAME", "ImagesMetadata")
     
     # SQS Queues
