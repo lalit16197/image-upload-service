@@ -1,0 +1,21 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+
+# IDE & OS files
+.vscode/
+.idea/
+.DS_Store
+
+# LocalStack dynamic data (if created locally)
+.localstack/

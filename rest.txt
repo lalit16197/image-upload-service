@@ -1,0 +1,8 @@
+# 1. Clear state marker
+rm -f .localstack_data/initialized
+
+# 2. Execute initialization inside running container
+docker exec -it localstack_main bash /etc/localstack/init/ready.d/init-aws.sh
+
+# 3. Verify the bucket is now created under the matching name
+aws --endpoint-url=http://localhost:4566 s3 ls
