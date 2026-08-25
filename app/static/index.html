@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Image Storage Console</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="container">
+    <header>
+      <h1>Image Storage Console</h1>
+      <p class="muted">Upload, search, view, and delete images through the FastAPI service.</p>
+    </header>
+
+    <section class="panel">
+      <h2>Upload image</h2>
+      <form id="upload-form">
+        <div class="grid">
+          <label>Owner ID<input name="owner_id" required placeholder="user-123"></label>
+          <label>Category<input name="category" value="general" required></label>
+          <label>Tag<input name="tag" placeholder="travel"></label>
+          <label>Caption<input name="caption" placeholder="Optional caption"></label>
+        </div>
+        <label>Image file<input id="file" name="file" type="file" accept="image/jpeg,image/png,image/gif,image/webp" required></label>
+        <button type="submit">Upload image</button>
+      </form>
+      <p id="upload-status" class="status"></p>
+    </section>
+
+    <section class="panel">
+      <div class="toolbar">
+        <div>
+          <h2>Images</h2>
+          <p class="muted">Use at least one filter. Tag + filename prefix uses the indexed query.</p>
+        </div>
+        <button id="refresh" class="secondary">Refresh</button>
+      </div>
+      <form id="filter-form" class="filters">
+        <input name="owner_id" placeholder="Owner ID">
+        <input name="category" placeholder="Category">
+        <input name="tag" placeholder="Tag">
+        <input name="filename_prefix" placeholder="Filename prefix">
+        <button type="submit">Search</button>
+      </form>
+      <p id="list-status" class="status"></p>
+      <div id="images" class="image-list"></div>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
