@@ -13,9 +13,7 @@ services:
       - DOCKER_HOST=unix:///var/run/docker.sock
       - LAMBDA_EXECUTOR=local
       - EULA=1
-      # Enable local state persistence
       - PERSISTENCE=1
-      - AWS_DEFAULT_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
     volumes:

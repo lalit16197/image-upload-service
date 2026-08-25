@@ -37,3 +37,4 @@ __pycache__/
 # LocalStack dynamic state and data
 .localstack_data/
 .localstack/
+.env

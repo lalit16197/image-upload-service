@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timezone
+from typing import Optional, List, Dict, Any
 from boto3.dynamodb.conditions import Key
 from app.config import settings
 from app.core.aws_clients import table, sqs_client
@@ -10,47 +11,45 @@ class MetadataService:
     @staticmethod
     def save_metadata(
         image_id: str,
-        user_id: str,
+        owner_id: str,
         category: str,
-        tag: str,
-        filename: str,
         s3_key: str,
-        size_bytes: int = 0
+        caption: Optional[str] = None
     ) -> dict:
         """Saves image item metadata to DynamoDB using Single-Table Design."""
         now = datetime.now(timezone.utc).isoformat()
+        
         item = {
-            "PK": f"OWNER#{user_id}",
+            "PK": f"OWNER#{owner_id}",
             "SK": f"IMAGE#{image_id}",
             "GSI1PK": f"CATEGORY#{category}",
             "GSI1SK": f"CREATED#{now}",
             "image_id": image_id,
-            "user_id": user_id,
+            "owner_id": owner_id,
             "category": category,
-            "tag": tag,
-            "filename": filename,
+            "caption": caption,
             "s3_key": s3_key,
-            "size_bytes": size_bytes,
             "status": "AVAILABLE",
             "created_at": now,
         }
+        
         table.put_item(Item=item)
         return item
 
     @staticmethod
-    def get_image(user_id: str, image_id: str) -> dict | None:
+    def get_image(owner_id: str, image_id: str) -> dict | None:
         """Fetches a specific image by primary key."""
-        res = table.get_item(Key={"PK": f"OWNER#{user_id}", "SK": f"IMAGE#{image_id}"})
+        res = table.get_item(Key={"PK": f"OWNER#{owner_id}", "SK": f"IMAGE#{image_id}"})
         item = res.get("Item")
         if item and item.get("status") == "AVAILABLE":
             return item
         return None
 
     @staticmethod
-    def list_images_by_owner(user_id: str) -> list[dict]:
+    def list_images_by_owner(owner_id: str) -> list[dict]:
         """Lists active images owned by a user."""
         res = table.query(
-            KeyConditionExpression=Key("PK").eq(f"OWNER#{user_id}") & Key("SK").begins_with("IMAGE#")
+            KeyConditionExpression=Key("PK").eq(f"OWNER#{owner_id}") & Key("SK").begins_with("IMAGE#")
         )
         return [item for item in res.get("Items", []) if item.get("status") == "AVAILABLE"]
 
@@ -64,9 +63,9 @@ class MetadataService:
         return [item for item in res.get("Items", []) if item.get("status") == "AVAILABLE"]
 
     @staticmethod
-    def soft_delete_and_queue(user_id: str, image_id: str, s3_key: str) -> bool:
+    def soft_delete_and_queue(owner_id: str, image_id: str, s3_key: str) -> bool:
         """Marks metadata as PENDING_DELETE and enqueues async removal task into SQS."""
-        pk = f"OWNER#{user_id}"
+        pk = f"OWNER#{owner_id}"
         sk = f"IMAGE#{image_id}"
 
         # 1. Immediate soft delete in DynamoDB

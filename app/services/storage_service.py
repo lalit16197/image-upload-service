@@ -39,16 +39,6 @@ class StorageService:
         }
 
     @staticmethod
-    def complete_multipart_upload(s3_key: str, upload_id: str, parts: list[dict]) -> dict:
-        """Finalizes S3 multipart upload session."""
-        return s3_client.complete_multipart_upload(
-            Bucket=settings.S3_BUCKET_NAME,
-            Key=s3_key,
-            UploadId=upload_id,
-            MultipartUpload={"Parts": parts},
-        )
-
-    @staticmethod
     def generate_download_url(s3_key: str, expires_in: int = 3600) -> str:
         """Generates a temporary presigned download URL for an S3 object."""
         return s3_client.generate_presigned_url(

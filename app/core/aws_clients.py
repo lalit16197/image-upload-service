@@ -1,5 +1,6 @@
 import os
 import boto3
+from botocore.config import Config
 from app.config import settings
 
 # Determine AWS credentials
@@ -13,10 +14,11 @@ endpoint_url = getattr(settings, "ENDPOINT_URL", None) or os.getenv("AWS_ENDPOIN
 # Unified AWS Clients with explicit LocalStack endpoint fallback
 s3_client = boto3.client(
     "s3",
-    endpoint_url=endpoint_url,
+    endpoint_url=endpoint_url,  # e.g., http://localhost:4566
     region_name=aws_region,
     aws_access_key_id=aws_access_key_id,
     aws_secret_access_key=aws_secret_access_key,
+    config=Config(s3={"addressing_style": "path"})  # <--- THIS IS THE CRITICAL FIX
 )
 
 sqs_client = boto3.client(

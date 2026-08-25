@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import logging
 
 from app.services.storage_service import StorageService
@@ -14,7 +14,7 @@ logger = logging.getLogger("api_main")
 tags_metadata = [
     {
         "name": "Image Management",
-        "description": "Core operations for presigned upload generation, GSI-filtered querying, viewing, and async soft/hard deletion.",
+        "description": "Core operations for presigned multipart upload generation, GSI-filtered querying, viewing, and async deletion.",
     },
 ]
 
@@ -24,15 +24,8 @@ app = FastAPI(
     description="""
 ## Cloud-Native Media Pipeline API
 
-This service supports direct-to-S3 presigned multipart uploads, single-table DynamoDB index lookups, 
+Supports direct-to-S3 presigned multipart uploads, single-table DynamoDB index lookups, 
 and non-blocking asynchronous hard purging using AWS SQS.
-
-### Usage Quickstart:
-1. Call **`POST /api/v1/images/upload-url`** to get an S3 presigned upload link and register metadata.
-2. Upload binary payload directly to S3 using the generated URL.
-3. Query active media assets using **`GET /api/v1/images`** (filters by `owner_id` or `category`).
-4. Retrieve secure GET download links using **`GET /api/v1/images/{owner_id}/{image_id}/download`**.
-5. Delete media assets asynchronously using **`DELETE /api/v1/images/{owner_id}/{image_id}`**.
     """,
     version="1.0.0",
     openapi_tags=tags_metadata,
@@ -48,12 +41,17 @@ class InitiateUploadRequest(BaseModel):
     content_type: str = Field("image/jpeg", example="image/jpeg", description="MIME content type")
     category: str = Field("general", example="travel", description="Category tag used for GSI indexing")
     caption: Optional[str] = Field(None, example="Summer in Rome", description="Optional text description")
+    total_parts: int = Field(1, example=1, description="Number of multipart upload parts requested")
+
+class PartUrlItem(BaseModel):
+    part_number: int
+    upload_url: str
 
 class UploadResponse(BaseModel):
-    image_id: str = Field(..., example="2cd6bd3d-700b-4c0f-b216-ae396d07f500")
-    s3_key: str = Field(..., example="uploads/user_mario_42/2cd6bd3d-700b-4c0f-b216-ae396d07f500/vacation.jpg")
-    upload_id: str = Field(..., example="kQM4siMOcMAwZmCY2mdM...")
-    upload_url: str = Field(..., example="http://localhost:4566/instagram-images-bucket/...")
+    image_id: str
+    upload_id: str
+    s3_key: str
+    part_urls: List[PartUrlItem]
 
 class ImageItemResponse(BaseModel):
     image_id: str
@@ -75,25 +73,25 @@ class MessageResponse(BaseModel):
 
 # --- REST API Endpoints ---
 
-# Task 1.1: Upload Image (Presigned Multipart Upload & Metadata Setup)
 @app.post(
     "/api/v1/images/upload-url",
     response_model=UploadResponse,
     status_code=status.HTTP_201_CREATED,
     tags=["Image Management"],
-    summary="Task 1.1: Initiate S3 Presigned Upload",
-    response_description="Returns S3 upload configuration and saves initial metadata to DynamoDB."
+    summary="Task 1.1: Initiate S3 Presigned Multipart Upload",
+    response_description="Returns S3 multipart upload URLs and saves initial metadata to DynamoDB."
 )
 def initiate_image_upload(payload: InitiateUploadRequest):
     """
-    Generates a presigned S3 upload configuration and initializes 
+    Generates presigned S3 multipart upload links and initializes 
     the metadata lifecycle in DynamoDB with AVAILABLE status.
     """
     try:
+        # Call storage service using user_id and total_parts
         upload_data = StorageService.initiate_multipart_upload(
-            owner_id=payload.owner_id,
+            user_id=payload.owner_id,
             file_name=payload.file_name,
-            content_type=payload.content_type
+            total_parts=payload.total_parts
         )
         
         MetadataService.save_metadata(
@@ -107,27 +105,20 @@ def initiate_image_upload(payload: InitiateUploadRequest):
         return upload_data
     except Exception as e:
         logger.error(f"Error initiating upload: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to initialize image upload session.")
+        raise HTTPException(status_code=500, detail=f"Failed to initialize image upload session: {str(e)}")
 
 
-# Task 1.2: List Images (GSI Filters by Owner or Category)
 @app.get(
     "/api/v1/images",
     response_model=List[ImageItemResponse],
     status_code=status.HTTP_200_OK,
     tags=["Image Management"],
-    summary="Task 1.2: List active images with search filters",
-    response_description="Returns list of active images matching search parameters."
+    summary="Task 1.2: List active images with search filters"
 )
 def list_images(
     owner_id: Optional[str] = Query(None, description="Filter images by Owner ID (uses GSI1)"),
     category: Optional[str] = Query(None, description="Filter images by Category (uses GSI2)")
 ):
-    """
-    Lists active images from DynamoDB. 
-    Requires at least one filter parameter (`owner_id` or `category`).
-    Automatically excludes items marked as `PENDING_DELETE`.
-    """
     if not owner_id and not category:
         raise HTTPException(
             status_code=400, 
@@ -136,28 +127,22 @@ def list_images(
 
     try:
         if owner_id:
-            items = MetadataService.query_by_owner(owner_id)
+            return MetadataService.query_by_owner(owner_id)
         else:
-            items = MetadataService.query_by_category(category)
-        return items
+            return MetadataService.query_by_category(category)
     except Exception as e:
         logger.error(f"Error querying images: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to query image metadata records.")
 
 
-# Task 1.3: View / Download Image (GET Presigned URL)
 @app.get(
     "/api/v1/images/{owner_id}/{image_id}/download",
     response_model=DownloadResponse,
     status_code=status.HTTP_200_OK,
     tags=["Image Management"],
-    summary="Task 1.3: Get secure view/download URL",
-    response_description="Returns a temporary GET presigned S3 download URL."
+    summary="Task 1.3: Get secure view/download URL"
 )
 def get_image_download_url(owner_id: str, image_id: str):
-    """
-    Retrieves image metadata and generates a secure, short-lived GET presigned URL for direct viewing/downloading.
-    """
     metadata = MetadataService.get_image(owner_id=owner_id, image_id=image_id)
     if not metadata or metadata.get("status") == "PENDING_DELETE":
         raise HTTPException(status_code=404, detail="Requested image was not found or has been deleted.")
@@ -170,20 +155,14 @@ def get_image_download_url(owner_id: str, image_id: str):
         raise HTTPException(status_code=500, detail="Failed to generate secure download URL.")
 
 
-# Task 1.4: Delete Image (Soft Delete + Async SQS Hard Delete)
 @app.delete(
     "/api/v1/images/{owner_id}/{image_id}",
     response_model=MessageResponse,
     status_code=status.HTTP_202_ACCEPTED,
     tags=["Image Management"],
-    summary="Task 1.4: Asynchronously delete an image",
-    response_description="Marks item as soft-deleted and enqueues job for SQS worker hard purge."
+    summary="Task 1.4: Asynchronously delete an image"
 )
 def delete_image(owner_id: str, image_id: str):
-    """
-    Soft-deletes the image metadata in DynamoDB (`PENDING_DELETE`) for instant API read exclusion,
-    and dispatches a message to SQS for background S3 and DynamoDB hard deletion.
-    """
     metadata = MetadataService.get_image(owner_id=owner_id, image_id=image_id)
     if not metadata or metadata.get("status") == "PENDING_DELETE":
         raise HTTPException(status_code=404, detail="Requested image does not exist or is already deleted.")
