@@ -18,17 +18,9 @@ The quarantine bucket aborts incomplete multipart uploads after 24 hours. The up
 
 Open `http://localhost:8000/` after starting Docker Compose. The UI uses the FastAPI endpoints to upload metadata and image parts, search by owner/category/tag, open a presigned download URL, and queue deletion.
 
-For API-only smoke testing, use the upload flow `upload-url` -> direct S3 part uploads -> `upload-complete`.
+For API-only smoke testing, use the generated OpenAPI page at `http://localhost:8000/docs`; the upload flow is `upload-url` -> direct S3 part uploads -> `upload-complete`.
 
-The checked-in OpenAPI specification is available directly in GitHub:
-
-* **Interactive Swagger UI (GitHub Pages):** `https://lalit16197.github.io/image-upload-service/`
-* **OpenAPI JSON in GitHub:** [`openapi.json`](./openapi.json)
-* **Raw OpenAPI JSON:** [`openapi.json` on GitHub](https://raw.githubusercontent.com/lalit16197/image-upload-service/master/openapi.json)
-
-The Swagger UI is deployed automatically by GitHub Actions whenever `openapi.json` or the `docs/` viewer changes. The first deployment requires enabling **Settings -> Pages -> Source: GitHub Actions** once in the repository.
-
-When the service container is running (`docker-compose up`), FastAPI also provides local documentation:
+When the service container is running (`docker-compose up`), access interactive documentation at the following URLs:
 
 * **Interactive Swagger UI:** `http://localhost:8000/docs`
 * **ReDoc Documentation:** `http://localhost:8000/redoc`
