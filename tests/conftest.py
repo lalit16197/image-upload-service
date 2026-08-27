@@ -52,6 +52,8 @@ def mock_aws_setup(aws_credentials):
                 {"AttributeName": "GSI1SK", "AttributeType": "S"},
                 {"AttributeName": "GSI2PK", "AttributeType": "S"},
                 {"AttributeName": "GSI2SK", "AttributeType": "S"},
+                {"AttributeName": "GSI3PK", "AttributeType": "S"},
+                {"AttributeName": "GSI3SK", "AttributeType": "S"},
             ],
             GlobalSecondaryIndexes=[
                 {
@@ -67,6 +69,14 @@ def mock_aws_setup(aws_credentials):
                     "KeySchema": [
                         {"AttributeName": "GSI2PK", "KeyType": "HASH"},
                         {"AttributeName": "GSI2SK", "KeyType": "RANGE"},
+                    ],
+                    "Projection": {"ProjectionType": "ALL"},
+                },
+                {
+                    "IndexName": "GSI3Index",
+                    "KeySchema": [
+                        {"AttributeName": "GSI3PK", "KeyType": "HASH"},
+                        {"AttributeName": "GSI3SK", "KeyType": "RANGE"},
                     ],
                     "Projection": {"ProjectionType": "ALL"},
                 },

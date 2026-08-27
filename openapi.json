@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Instagram Scalable Image Upload & Metadata Service",
-    "description": "\n## Cloud-Native Media Pipeline API\n\nSupports direct-to-S3 presigned multipart uploads, single-table DynamoDB index lookups, \nand non-blocking asynchronous hard purging using AWS SQS.\n    ",
+    "description": "\n## Cloud-Native Media Pipeline API\n\nSupports direct-to-S3 presigned multipart uploads, single-table DynamoDB index lookups,\nand non-blocking asynchronous hard purging using AWS SQS.\n    ",
     "version": "1.0.0"
   },
   "paths": {
@@ -12,7 +12,6 @@
           "Image Management"
         ],
         "summary": "Task 1.1: Initiate S3 Presigned Multipart Upload",
-        "description": "Generates presigned S3 multipart upload links. The upload worker later\nvalidates the object and persists its metadata.",
         "operationId": "initiate_image_upload_api_v1_images_upload_url_post",
         "requestBody": {
           "content": {
@@ -108,10 +107,10 @@
                   "type": "null"
                 }
               ],
-              "description": "Filter images by Owner ID (uses GSI1)",
+              "description": "Filter images by Owner ID",
               "title": "Owner Id"
             },
-            "description": "Filter images by Owner ID (uses GSI1)"
+            "description": "Filter images by Owner ID"
           },
           {
             "name": "category",
@@ -126,13 +125,13 @@
                   "type": "null"
                 }
               ],
-              "description": "Filter images by Category (uses GSI2)",
+              "description": "Filter images by Category",
               "title": "Category"
             },
-            "description": "Filter images by Category (uses GSI2)"
+            "description": "Filter images by Category"
           },
           {
-            "name": "tag",
+            "name": "tags",
             "in": "query",
             "required": false,
             "schema": {
@@ -144,10 +143,10 @@
                   "type": "null"
                 }
               ],
-              "description": "Filter images by Tag (uses GSI1)",
-              "title": "Tag"
+              "description": "Comma-separated tags; all tags must match",
+              "title": "Tags"
             },
-            "description": "Filter images by Tag (uses GSI1)"
+            "description": "Comma-separated tags; all tags must match"
           },
           {
             "name": "filename_prefix",
@@ -414,6 +413,13 @@
             ],
             "title": "Caption"
           },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
           "tag": {
             "anyOf": [
               {
@@ -477,22 +483,21 @@
           "category": {
             "type": "string",
             "title": "Category",
-            "description": "Category tag used for GSI indexing",
+            "description": "Category of the image",
             "default": "general",
             "example": "travel"
           },
-          "tag": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Tag",
-            "description": "Tag used for indexed search",
-            "example": "beach"
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags",
+            "description": "Tags used for indexed search",
+            "example": [
+              "beach",
+              "summer"
+            ]
           },
           "caption": {
             "anyOf": [

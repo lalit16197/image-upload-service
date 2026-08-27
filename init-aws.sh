@@ -99,6 +99,8 @@ else
             AttributeName=GSI1SK,AttributeType=S \
             AttributeName=GSI2PK,AttributeType=S \
             AttributeName=GSI2SK,AttributeType=S \
+            AttributeName=GSI3PK,AttributeType=S \
+            AttributeName=GSI3SK,AttributeType=S \
         --key-schema \
             AttributeName=PK,KeyType=HASH \
             AttributeName=SK,KeyType=RANGE \
@@ -119,10 +121,39 @@ else
                         {\"AttributeName\":\"GSI2SK\",\"KeyType\":\"RANGE\"}
                     ],
                     \"Projection\": {\"ProjectionType\":\"ALL\"}
+                },
+                {
+                    \"IndexName\": \"GSI3Index\",
+                    \"KeySchema\": [
+                        {\"AttributeName\":\"GSI3PK\",\"KeyType\":\"HASH\"},
+                        {\"AttributeName\":\"GSI3SK\",\"KeyType\":\"RANGE\"}
+                    ],
+                    \"Projection\": {\"ProjectionType\":\"ALL\"}
                 }
             ]" \
         --billing-mode PAY_PER_REQUEST 2>/dev/null || true
 fi
+
+# Add GSI3 to an existing table created by an older version of this script.
+if ! awslocal dynamodb describe-table --table-name "${DYNAMODB_TABLE_NAME}" \
+    --query "Table.GlobalSecondaryIndexes[?IndexName=='GSI3Index'].IndexName" \
+    --output text 2>/dev/null | grep -q "GSI3Index"; then
+  echo "  -> Adding missing GSI3Index to existing DynamoDB table..."
+  awslocal dynamodb update-table \
+    --table-name "${DYNAMODB_TABLE_NAME}" \
+    --attribute-definitions \
+      AttributeName=GSI3PK,AttributeType=S \
+      AttributeName=GSI3SK,AttributeType=S \
+    --global-secondary-index-updates \
+      '[{"Create":{"IndexName":"GSI3Index","KeySchema":[{"AttributeName":"GSI3PK","KeyType":"HASH"},{"AttributeName":"GSI3SK","KeyType":"RANGE"}],"Projection":{"ProjectionType":"ALL"}}}]' \
+    2>/dev/null || true
+fi
+
+until [ "$(awslocal dynamodb describe-table --table-name "${DYNAMODB_TABLE_NAME}" \
+  --query "Table.TableStatus" --output text 2>/dev/null)" = "ACTIVE" ]; do
+  echo "  -> Waiting for DynamoDB table to become ACTIVE..."
+  sleep 2
+done
 
 echo "============================================================"
 echo "    LOCALSTACK INFRASTRUCTURE CHECK & PROVISION COMPLETE   "

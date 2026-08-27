@@ -27,6 +27,14 @@ async function upload(event) {
   try {
     const totalParts = Math.max(1, Math.ceil(file.size / partSize));
     const fields = new FormData(form);
+    const tags = $("upload-tags").value
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    message(
+      $("upload-status"),
+      `Creating multipart upload${tags.length ? ` with tags: ${tags.join(", ")}` : ""}...`
+    );
     const initiated = await jsonRequest(`${api}/upload-url`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -35,7 +43,7 @@ async function upload(event) {
         file_name: file.name,
         content_type: file.type || "application/octet-stream",
         category: fields.get("category"),
-        tag: fields.get("tag") || null,
+        tags,
         caption: fields.get("caption") || null,
         total_parts: totalParts
       })
@@ -104,22 +112,37 @@ async function loadImages(event) {
   if (event) event.preventDefault();
   const params = new URLSearchParams();
   for (const [key, value] of new FormData($("filter-form"))) if (value) params.set(key, value);
-  if (![...params].some(([key]) => ["owner_id", "category", "tag"].includes(key))) {
+  if (![...params].some(([key]) => ["owner_id", "category", "tags"].includes(key))) {
     message($("list-status"), "Enter an owner, category, or tag filter.", true);
     return;
   }
   message($("list-status"), "Loading...");
   try {
     const images = await jsonRequest(`${api}?${params}`);
-    $("images").innerHTML = images.length ? images.map(renderImage).join("") : '<p class="muted">No active images found.</p>';
+    $("images").innerHTML = images.length ? '<p class="muted">Loading thumbnails...</p>' : '<p class="muted">No active images found.</p>';
+    const cards = await Promise.all(images.map(renderImage));
+    $("images").innerHTML = cards.join("");
     message($("list-status"), `${images.length} image(s) found.`);
   } catch (error) { message($("list-status"), error.message, true); }
 }
 
-function renderImage(image) {
+async function renderImage(image) {
+  let thumbnailUrl = "";
+  try {
+    const result = await jsonRequest(
+      `${api}/${encodeURIComponent(image.owner_id)}/${encodeURIComponent(image.image_id)}/download`
+    );
+    thumbnailUrl = result.download_url;
+  } catch (error) {
+    console.warn(`Thumbnail unavailable for ${image.image_id}`, error);
+  }
+  const thumbnail = thumbnailUrl
+    ? `<img class="thumbnail" src="${escapeHtml(thumbnailUrl)}" alt="${escapeHtml(image.filename || "Image")}" loading="lazy">`
+    : '<div class="thumbnail placeholder">No preview</div>';
   return `<article class="image-row">
+    ${thumbnail}
     <div><strong>${escapeHtml(image.filename || image.image_id)}</strong>
-    <small>${escapeHtml(image.owner_id)} · ${escapeHtml(image.category)} · ${escapeHtml(image.tag || "untagged")} · ${formatBytes(image.size_bytes)}</small></div>
+    <small>${escapeHtml(image.owner_id)} · ${escapeHtml(image.category)} · ${escapeHtml((image.tags || (image.tag ? [image.tag] : [])).join(", ") || "untagged")} · ${formatBytes(image.size_bytes)}</small></div>
     <div class="actions"><button onclick="downloadImage('${encodeURIComponent(image.owner_id)}','${encodeURIComponent(image.image_id)}')">View / download</button>
     <button class="danger" onclick="deleteImage('${encodeURIComponent(image.owner_id)}','${encodeURIComponent(image.image_id)}')">Delete</button></div>
   </article>`;

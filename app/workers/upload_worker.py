@@ -64,18 +64,25 @@ def upload_worker_handler(event, context):
                     Key=s3_key,
                     MetadataDirective="COPY",
                 )
-                s3_client.delete_object(Bucket=bucket_name, Key=s3_key)
                 metadata = object_info.get("Metadata", {})
+                tags = [
+                    tag.strip()
+                    for tag in metadata.get("tags", "").split(",")
+                    if tag.strip()
+                ]
+                if not tags and metadata.get("tag"):
+                    tags = [metadata["tag"]]
                 MetadataService.save_metadata(
                     image_id=image_id,
                     owner_id=metadata.get("owner_id", owner_id),
                     category=metadata.get("category", "general"),
-                    tag=metadata.get("tag"),
+                    tags=tags,
                     caption=metadata.get("caption"),
                     filename=metadata.get("filename", parts[-1]),
                     size_bytes=object_info.get("ContentLength", 0),
                     s3_key=s3_key,
                 )
+                s3_client.delete_object(Bucket=bucket_name, Key=s3_key)
                 print(f"[Upload Worker] Indexed image {image_id} for owner {owner_id}")
 
         except Exception as e:

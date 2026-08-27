@@ -13,6 +13,7 @@ class StorageService:
         total_parts: int = 1,
         category: str | None = None,
         tag: str | None = None,
+        tags: list[str] | None = None,
         content_type: str | None = None,
         caption: str | None = None,
     ) -> dict:
@@ -26,8 +27,13 @@ class StorageService:
             "owner_id": user_id,
             "image_id": image_id,
             "filename": file_name,
+            "tags": ",".join(
+                value.strip()
+                for value in (tags if tags is not None else ([tag] if tag else []))
+                if value and value.strip()
+            ),
         }
-        for name, value in (("category", category), ("tag", tag), ("caption", caption)):
+        for name, value in (("category", category), ("caption", caption)):
             if value is not None:
                 metadata[name] = value
 
